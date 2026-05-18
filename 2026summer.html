@@ -369,6 +369,18 @@
 
     .btn-block { width: 100%; text-align: center; }
 
+    .btn-outline {
+      background: transparent;
+      color: #111;
+      border: 1px solid rgba(0, 0, 0, 0.28);
+    }
+
+    .btn-outline:hover {
+      background: rgba(0, 0, 0, 0.06);
+      color: #111;
+      border-color: rgba(0, 0, 0, 0.4);
+    }
+
     .route-panel .hint {
       font-size: 0.75rem;
       letter-spacing: 0.04em;
@@ -845,7 +857,7 @@
 
       <div class="glass-card panel route-panel">
         <h2>路线标记</h2>
-        <p class="hint">填写时间与地点，将按顺序显示在列表并标到地图上。点击列表项可与地图联动选中。</p>
+        <p class="hint">填写时间与地点后点「添加新点」。与共享表格的日期/时间/地点/备注列自动同步。</p>
         <div class="route-form">
           <label for="route-time">时间</label>
           <input type="text" id="route-time" maxlength="40" placeholder="例：7/10 或 7月10日 14:00" autocomplete="off" />
@@ -853,7 +865,9 @@
           <input type="text" id="route-place" maxlength="120" placeholder="例：京都站 / 大阪城公园 / 渋谷" autocomplete="off" />
           <label for="route-note">内容 / 备注</label>
           <input type="text" id="route-note" maxlength="200" placeholder="例：午餐、住宿、看展…" autocomplete="off" />
-          <button type="button" class="btn btn-block" id="route-add-btn">搜索并添加到地图</button>
+          <button type="button" class="btn btn-block" id="route-add-btn">添加新点到地图</button>
+          <button type="button" class="btn btn-block btn-outline" id="route-save-btn" style="display: none; margin-top: 0.35rem">保存选中项</button>
+          <button type="button" class="btn btn-block btn-outline" id="route-clear-btn" style="display: none; margin-top: 0.35rem">取消选中</button>
         </div>
         <p class="route-status" id="route-status" aria-live="polite"></p>
         <ul class="pin-list" id="pin-list"></ul>
@@ -886,10 +900,10 @@
     <div class="sheet-toolbar">
       <button type="button" class="btn" id="sheet-add-row">+ 行</button>
       <button type="button" class="btn" id="sheet-add-col">+ 列</button>
-      <button type="button" class="btn" id="sheet-import-route">从路线导入</button>
+      <button type="button" class="btn" id="sheet-import-route">重新同步路线</button>
       <button type="button" class="btn" id="sheet-goto-map">查看地图路线 →</button>
       <button type="button" class="btn" id="sheet-export-tsv">复制为 TSV</button>
-      <span class="sheet-status" id="sheet-status" aria-live="polite">本机编辑中</span>
+      <span class="sheet-status" id="sheet-status" aria-live="polite">与地图路线自动同步 · 改日期/时间/地点/备注会更新地图</span>
     </div>
     <div class="sheet-wrap" id="sheet-wrap">
       <table class="sheet-table" id="sheet-table" aria-label="可编辑行程表">
@@ -915,6 +929,7 @@
 
       var cloudEnabled = false;
       var cloudApplying = false;
+      var sheetCloudAvailable = false;
 
       var REMOTE_GEOJSON =
         "https://cdn.jsdelivr.net/gh/dataofjapan/land@master/japan.geojson";
@@ -1086,10 +1101,13 @@
 
       var state = loadState();
       var activeItineraryId = null;
+      var routeEditing = false;
       var routeMarkersById = {};
       var activeView = "map";
       var sheetEditing = false;
       var sheetSaveTimer = null;
+      var itinerarySheetSyncing = false;
+      var itinerarySheetSyncTimer = null;
       var map;
       var geoLayer;
       var routeLayerGroup = null;
@@ -1330,14 +1348,45 @@
         document.getElementById("route-note").value = item.note || "";
       }
 
-      function updateRouteFormMode() {
-        var btn = document.getElementById("route-add-btn");
-        if (!btn) return;
-        if (activeItineraryId && getItineraryItem(activeItineraryId)) {
-          btn.textContent = "保存并更新地图";
-        } else {
-          btn.textContent = "搜索并添加到地图";
+      function clearRouteSelection(clearForm) {
+        activeItineraryId = null;
+        if (clearForm) {
+          document.getElementById("route-time").value = "";
+          document.getElementById("route-place").value = "";
+          document.getElementById("route-note").value = "";
         }
+        updateRouteFormMode();
+        renderPinList();
+        refreshRouteOnMap();
+      }
+
+      function updateRouteFormMode() {
+        var hasActive = !!(activeItineraryId && getItineraryItem(activeItineraryId));
+        var saveBtn = document.getElementById("route-save-btn");
+        var clearBtn = document.getElementById("route-clear-btn");
+        if (saveBtn) saveBtn.style.display = hasActive ? "" : "none";
+        if (clearBtn) clearBtn.style.display = hasActive ? "" : "none";
+      }
+
+      function setRouteFormBusy(busy) {
+        ["route-add-btn", "route-save-btn"].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.disabled = !!busy;
+        });
+      }
+
+      function bindRouteFormEditing() {
+        ["route-time", "route-place", "route-note"].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (!el || el.dataset.routeEditBound) return;
+          el.dataset.routeEditBound = "1";
+          el.addEventListener("focus", function () {
+            routeEditing = true;
+          });
+          el.addEventListener("blur", function () {
+            routeEditing = false;
+          });
+        });
       }
 
       function normalizeInfoClippings(arr) {
@@ -1408,8 +1457,38 @@
           headers: headers,
           body: JSON.stringify(rows)
         }).then(function (r) {
-          if (!r.ok) return Promise.reject(new Error("POST " + path + " " + r.status));
+          if (r.ok) return;
+          return r.text().then(function (body) {
+            var err = new Error("POST " + path + " " + r.status);
+            err.status = r.status;
+            err.body = body || "";
+            return Promise.reject(err);
+          });
         });
+      }
+
+      function sheetCloudErrorHint(err) {
+        var body = (err && err.body) || "";
+        if (
+          (err && err.status === 404) ||
+          body.indexOf("shared_sheet") !== -1 ||
+          body.indexOf("PGRST205") !== -1
+        ) {
+          return "同步失败：Supabase 未创建 shared_sheet 表，请在 SQL Editor 运行 supabase-setup.sql";
+        }
+        if (err && err.status === 413) {
+          return "同步失败：表格数据过大（含图片时请减少图片或先仅本机保存）";
+        }
+        return "同步失败";
+      }
+
+      async function probeSheetCloudTable() {
+        try {
+          await sbGetJSON("shared_sheet?select=id&limit=1");
+          return true;
+        } catch (e) {
+          return false;
+        }
       }
 
       function sbDeleteEq(table, id) {
@@ -1447,22 +1526,24 @@
         var clips = await sbGetJSON("info_clippings?select=*&order=updated_at.desc");
         cloudApplying = true;
         try {
-          var localNoCoords = state.itinerary.filter(function (it) {
-            return !itineraryHasCoords(it);
-          });
-          state.itinerary = pins.map(function (p) {
-            var parsed = parsePinNote(p.note);
-            return {
-              id: p.id,
-              time: parsed.time,
-              place: p.place,
-              note: parsed.note,
-              lat: p.lat,
-              lng: p.lng
-            };
-          });
-          if (localNoCoords.length) {
-            state.itinerary = state.itinerary.concat(localNoCoords);
+          if (!routeEditing) {
+            var localNoCoords = state.itinerary.filter(function (it) {
+              return !itineraryHasCoords(it);
+            });
+            state.itinerary = pins.map(function (p) {
+              var parsed = parsePinNote(p.note);
+              return {
+                id: p.id,
+                time: parsed.time,
+                place: p.place,
+                note: parsed.note,
+                lat: p.lat,
+                lng: p.lng
+              };
+            });
+            if (localNoCoords.length) {
+              state.itinerary = state.itinerary.concat(localNoCoords);
+            }
           }
           state.infoClippings = clips.map(function (c) {
             return {
@@ -1476,14 +1557,20 @@
             try {
               var sheets = await sbGetJSON("shared_sheet?select=*&id=eq." + encodeURIComponent(SHEET_ID));
               if (sheets.length) {
-                state.sheet = normalizeSheet({
+                var localRows = state.sheet.rows;
+                var pulled = normalizeSheet({
                   headers: sheets[0].headers,
                   rows: sheets[0].rows
                 });
+                pulled.rows = mergeSheetRowsFromCloud(pulled.rows, localRows);
+                state.sheet = pulled;
               }
             } catch (eSheet) {
               console.warn("表格云端拉取失败", eSheet);
             }
+          }
+          if (!routeEditing && !sheetEditing) {
+            syncItineraryToSheet({ silent: true, skipSave: true });
           }
         } finally {
           cloudApplying = false;
@@ -1516,23 +1603,61 @@
           });
           await sbPostJSON("info_clippings", crows, true);
         }
-        await cloudPushSheet(true);
+        try {
+          await cloudPushSheet(true);
+        } catch (eSheet) {
+          console.warn("表格初始上传失败", eSheet);
+        }
+      }
+
+      function prepareSheetRowsForCloud(rows) {
+        return rows.map(function (row) {
+          return row.map(function (cell) {
+            if (isSheetImageCell(cell)) {
+              return { img: "", cap: cell.cap || "", _img: true };
+            }
+            return cell;
+          });
+        });
+      }
+
+      function mergeSheetRowsFromCloud(remoteRows, localRows) {
+        var out = remoteRows.map(function (row, ri) {
+          return row.map(function (cell, ci) {
+            if (cell && typeof cell === "object" && cell._img && localRows[ri] && isSheetImageCell(localRows[ri][ci])) {
+              return localRows[ri][ci];
+            }
+            return cell;
+          });
+        });
+        return out;
       }
 
       function cloudPushSheet(force) {
         if (!cloudEnabled || cloudApplying) return Promise.resolve();
+        if (!sheetCloudAvailable) return Promise.resolve();
         if (!force && sheetEditing) return Promise.resolve();
-        return sbPostJSON(
-          "shared_sheet",
-          [
-            {
-              id: SHEET_ID,
-              headers: state.sheet.headers,
-              rows: state.sheet.rows
-            }
-          ],
-          true
-        );
+        var payload = {
+          id: SHEET_ID,
+          headers: state.sheet.headers,
+          rows: state.sheet.rows
+        };
+        return sbPostJSON("shared_sheet?on_conflict=id", [payload], true).catch(function (err) {
+          if (err && err.status === 413) {
+            return sbPostJSON(
+              "shared_sheet?on_conflict=id",
+              [
+                {
+                  id: SHEET_ID,
+                  headers: state.sheet.headers,
+                  rows: prepareSheetRowsForCloud(state.sheet.rows)
+                }
+              ],
+              true
+            );
+          }
+          return Promise.reject(err);
+        });
       }
 
       function scheduleSheetSave() {
@@ -1542,12 +1667,19 @@
           sheetSaveTimer = null;
           saveState();
           if (cloudEnabled && !cloudApplying) {
+            if (!sheetCloudAvailable) {
+              setSheetStatus("已保存到本机（需在 Supabase 运行 supabase-setup.sql 创建 shared_sheet 表）");
+              return;
+            }
             cloudPushSheet(false)
               .then(function () {
-                setSheetStatus("已同步");
+                var hasImg = state.sheet.rows.some(function (row) {
+                  return row.some(isSheetImageCell);
+                });
+                setSheetStatus(hasImg ? "已同步（图片主要保存在本机）" : "已同步");
               })
-              .catch(function () {
-                setSheetStatus("同步失败");
+              .catch(function (err) {
+                setSheetStatus(sheetCloudErrorHint(err));
               });
           } else {
             setSheetStatus("已保存到本机");
@@ -1622,6 +1754,7 @@
         cloudEnabled = true;
         setCloudStatus("正在连接 Supabase…", true);
         try {
+          sheetCloudAvailable = await probeSheetCloudTable();
           var has = await cloudRemoteHasAnyRow();
           if (has) {
             await cloudPullApply();
@@ -1629,8 +1762,16 @@
             await cloudSeedFromCurrentState();
           }
           saveState();
-          setCloudStatus("云端已连接 · 约每 12 秒同步他人更新", true);
-          setFooterCloudNote("行程 / 路线 / 收集夹 / 共享表格已与 Supabase 同步（匿名可写，注意滥用风险）");
+          if (sheetCloudAvailable) {
+            setCloudStatus("云端已连接 · 约每 12 秒同步他人更新", true);
+            setFooterCloudNote("行程 / 路线 / 收集夹 / 共享表格已与 Supabase 同步（匿名可写，注意滥用风险）");
+          } else {
+            setCloudStatus("云端已连接（表格未建表，仅本机保存表格）", true);
+            setFooterCloudNote("路线/收集夹已同步 · 表格需在 Supabase 运行 supabase-setup.sql 后共享");
+          }
+          if (!sheetCloudAvailable) {
+            setSheetStatus("表格仅本机保存：请在 Supabase SQL Editor 运行 supabase-setup.sql");
+          }
           setInterval(cloudPollTick, 12000);
         } catch (e) {
           cloudEnabled = false;
@@ -2019,6 +2160,7 @@
         state.itinerary[j] = t;
         saveState();
         syncItineraryUi();
+        syncItineraryToSheet({ silent: true });
         if (cloudEnabled && !cloudApplying) {
           cloudSyncAllPinSortOrder().catch(function (e) {
             console.warn(e);
@@ -2033,6 +2175,7 @@
         if (activeItineraryId === id) activeItineraryId = null;
         saveState();
         syncItineraryUi();
+        syncItineraryToSheet({ silent: true });
         if (cloudEnabled && !cloudApplying) {
           sbDeleteEq("map_pins", id)
             .then(function () {
@@ -2051,6 +2194,7 @@
         else if (field === "place") item.place = (value || "").trim().slice(0, 120);
         else if (field === "note") item.note = (value || "").trim().slice(0, 200);
         saveState();
+        scheduleItineraryToSheetSync();
         if (cloudEnabled && !cloudApplying && itineraryHasCoords(item)) {
           var sortOrder = getMappedItinerary().findIndex(function (x) {
             return x.id === id;
@@ -2085,6 +2229,7 @@
             item.lng = lng;
             saveState();
             syncItineraryUi();
+            syncItineraryToSheet({ silent: true });
             if (cloudEnabled && !cloudApplying) {
               var sortOrder = getMappedItinerary().findIndex(function (x) {
                 return x.id === id;
@@ -2120,9 +2265,8 @@
         }
         state.itinerary.push(item);
         saveState();
-        activeItineraryId = item.id;
         syncItineraryUi();
-        fillRouteFormFromItem(item);
+        syncItineraryToSheet({ silent: true });
         if (cloudEnabled && !cloudApplying && itineraryHasCoords(item)) {
           cloudPushItineraryItem(item, getMappedItinerary().length - 1).catch(function (e) {
             console.warn(e);
@@ -2139,22 +2283,11 @@
           setRouteStatus("请填写地点名称。", true);
           return Promise.resolve(false);
         }
-        if (activeItineraryId && getItineraryItem(activeItineraryId)) {
-          var item = getItineraryItem(activeItineraryId);
-          item.time = (time || "").trim().slice(0, 40);
-          item.place = place.trim().slice(0, 120);
-          item.note = (note || "").trim().slice(0, 200);
-          saveState();
-          return geocodeItineraryById(item.id, true).then(function (ok) {
-            if (ok) fitRouteBounds();
-            return ok;
-          });
-        }
         setRouteStatus("正在搜索地点…", false);
-        document.getElementById("route-add-btn").disabled = true;
+        setRouteFormBusy(true);
         return geocodeJapan(place.trim())
           .then(function (arr) {
-            document.getElementById("route-add-btn").disabled = false;
+            setRouteFormBusy(false);
             if (!arr || !arr.length) {
               setRouteStatus("未找到该地点，请换更具体的地址或日文名称。", true);
               return false;
@@ -2169,19 +2302,40 @@
             var label = (hit.display_name && hit.display_name.split(",")[0]) || place.trim();
             addItineraryItem(time, label, note, lat, lng);
             setRouteStatus("已添加：" + label, false);
-            document.getElementById("route-time").value = "";
-            document.getElementById("route-place").value = "";
-            document.getElementById("route-note").value = "";
-            activeItineraryId = null;
-            updateRouteFormMode();
+            clearRouteSelection(true);
             fitRouteBounds();
             return true;
           })
           .catch(function () {
-            document.getElementById("route-add-btn").disabled = false;
+            setRouteFormBusy(false);
             setRouteStatus("检索失败（网络或限流）。请稍后再试。", true);
             return false;
           });
+      }
+
+      function saveActiveItineraryFromRouteForm() {
+        if (!activeItineraryId || !getItineraryItem(activeItineraryId)) {
+          setRouteStatus("请先在列表或地图上选中要修改的点。", true);
+          return Promise.resolve(false);
+        }
+        var time = document.getElementById("route-time").value;
+        var place = document.getElementById("route-place").value;
+        var note = document.getElementById("route-note").value;
+        if (!(place || "").trim()) {
+          setRouteStatus("请填写地点名称。", true);
+          return Promise.resolve(false);
+        }
+        var item = getItineraryItem(activeItineraryId);
+        item.time = (time || "").trim().slice(0, 40);
+        item.place = place.trim().slice(0, 120);
+        item.note = (note || "").trim().slice(0, 200);
+        saveState();
+        setRouteFormBusy(true);
+        return geocodeItineraryById(item.id, true).then(function (ok) {
+          setRouteFormBusy(false);
+          if (ok) fitRouteBounds();
+          return ok;
+        });
       }
 
       function panToItineraryItem(item) {
@@ -2259,7 +2413,30 @@
         saveItineraryFromRouteForm();
       });
 
+      document.getElementById("route-save-btn").addEventListener("click", function () {
+        if (!map) {
+          setRouteStatus("地图尚未就绪，请稍后重试。", true);
+          return;
+        }
+        saveActiveItineraryFromRouteForm();
+      });
+
+      document.getElementById("route-clear-btn").addEventListener("click", function () {
+        clearRouteSelection(true);
+        setRouteStatus("已取消选中，可添加新点。", false);
+      });
+
       document.getElementById("route-fit-btn").addEventListener("click", fitRouteBounds);
+
+      function routeFormEnterKey(e) {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        if (activeItineraryId && getItineraryItem(activeItineraryId)) {
+          document.getElementById("route-save-btn").click();
+        } else {
+          document.getElementById("route-add-btn").click();
+        }
+      }
 
       document.getElementById("route-time").addEventListener("input", function () {
         if (!activeItineraryId) return;
@@ -2267,17 +2444,21 @@
         renderPinList();
       });
 
-      document.getElementById("route-time").addEventListener("keydown", function (e) {
-        if (e.key === "Enter") document.getElementById("route-add-btn").click();
+      document.getElementById("route-place").addEventListener("input", function () {
+        if (!activeItineraryId) return;
+        updateItineraryField(activeItineraryId, "place", this.value);
+        renderPinList();
       });
 
-      document.getElementById("route-place").addEventListener("keydown", function (e) {
-        if (e.key === "Enter") document.getElementById("route-add-btn").click();
+      document.getElementById("route-note").addEventListener("input", function () {
+        if (!activeItineraryId) return;
+        updateItineraryField(activeItineraryId, "note", this.value);
+        renderPinList();
       });
 
-      document.getElementById("route-note").addEventListener("keydown", function (e) {
-        if (e.key === "Enter") document.getElementById("route-add-btn").click();
-      });
+      document.getElementById("route-time").addEventListener("keydown", routeFormEnterKey);
+      document.getElementById("route-place").addEventListener("keydown", routeFormEnterKey);
+      document.getElementById("route-note").addEventListener("keydown", routeFormEnterKey);
 
       document.getElementById("clip-add-btn").addEventListener("click", addInfoClipFromForm);
       document.getElementById("clip-title-input").addEventListener("keydown", function (e) {
@@ -2601,6 +2782,13 @@
             cap: String(raw.cap || "").slice(0, SHEET_TEXT_MAX)
           };
         }
+        if (raw && typeof raw === "object" && raw._img) {
+          return {
+            img: "",
+            cap: String(raw.cap || "").slice(0, SHEET_TEXT_MAX),
+            _img: true
+          };
+        }
         if (raw && typeof raw === "object" && raw.img) {
           return { img: String(raw.img).slice(0, SHEET_IMG_MAX), cap: "" };
         }
@@ -2615,7 +2803,8 @@
         return String(v == null ? "" : v);
       }
 
-      function setSheetCell(r, c, value) {
+      function setSheetCell(r, c, value, opts) {
+        opts = opts || {};
         ensureSheetDimensions();
         if (!state.sheet.rows[r]) {
           state.sheet.rows[r] = state.sheet.headers.map(function () {
@@ -2624,6 +2813,9 @@
         }
         state.sheet.rows[r][c] = normalizeCellStorage(value);
         scheduleSheetSave();
+        if (!opts.skipRouteSync && !itinerarySheetSyncing && isSheetRouteColumn(c)) {
+          syncSheetRowToItinerary(r, { geocode: false });
+        }
       }
 
       function setSheetCellImage(r, c, dataUrl, caption) {
@@ -2681,6 +2873,7 @@
             return;
           }
           setSheetCellImage(r, c, dataUrl, "");
+          saveState();
           renderSheet();
           setSheetStatus("已粘贴图片");
           var cell = document.querySelector(
@@ -2702,6 +2895,26 @@
               if (file) pasteImageIntoCell(r, c, file);
               return true;
             }
+          }
+        }
+        if (dt.files && dt.files.length) {
+          for (var j = 0; j < dt.files.length; j++) {
+            if (dt.files[j].type && dt.files[j].type.indexOf("image") !== -1) {
+              e.preventDefault();
+              pasteImageIntoCell(r, c, dt.files[j]);
+              return true;
+            }
+          }
+        }
+        var html = dt.getData("text/html");
+        if (html) {
+          var m = html.match(/<img[^>]+src=["'](data:image\/[^"']+)["']/i);
+          if (m && m[1]) {
+            e.preventDefault();
+            setSheetCellImage(r, c, m[1], "");
+            renderSheet();
+            setSheetStatus("已粘贴图片");
+            return true;
           }
         }
         return false;
@@ -2768,7 +2981,7 @@
         var ta = document.createElement("textarea");
         ta.className = "sheet-cell-editor";
         ta.value = getCellPlainText(raw);
-        
+        ta.placeholder = "可换行 · 支持粘贴图片";
         ta.dataset.row = String(ri);
         ta.dataset.col = String(ci);
         ta.addEventListener("focus", function () {
@@ -2776,10 +2989,15 @@
         });
         ta.addEventListener("blur", function () {
           sheetEditing = false;
-          setSheetCell(ri, ci, ta.value);
+          if (isSheetImageCell(state.sheet.rows[ri][ci])) return;
+          setSheetCell(ri, ci, ta.value, { skipRouteSync: true });
+          if (isSheetRouteColumn(ci)) {
+            syncSheetRowToItinerary(ri, { geocode: true });
+          }
         });
         ta.addEventListener("input", function () {
-          setSheetCell(ri, ci, ta.value);
+          if (isSheetImageCell(state.sheet.rows[ri][ci])) return;
+          setSheetCell(ri, ci, ta.value, { skipRouteSync: true });
         });
         ta.addEventListener("paste", function (e) {
           if (handleSheetCellPaste(e, ri, ci)) return;
@@ -2906,6 +3124,7 @@
       function applyPasteToSheet(startR, startC, text) {
         var lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
         if (lines.length && lines[lines.length - 1] === "") lines.pop();
+        var touchedRows = {};
         lines.forEach(function (line, dr) {
           var cells = line.split("\t");
           var r = startR + dr;
@@ -2919,8 +3138,12 @@
           cells.forEach(function (val, dc) {
             var c = startC + dc;
             if (c >= state.sheet.headers.length) return;
-            setSheetCell(r, c, val.replace(/\r/g, ""));
+            setSheetCell(r, c, val.replace(/\r/g, ""), { skipRouteSync: true });
+            if (isSheetRouteColumn(c)) touchedRows[r] = true;
           });
+        });
+        Object.keys(touchedRows).forEach(function (rk) {
+          syncSheetRowToItinerary(parseInt(rk, 10), { geocode: false });
         });
         renderSheet();
         scheduleSheetSave();
@@ -2948,33 +3171,125 @@
         return lines.join("\n");
       }
 
-      function importItineraryToSheet() {
+      function getSheetColumnMap() {
         var h = state.sheet.headers;
-        var colDate = h.indexOf("日期");
-        var colTime = h.indexOf("时间");
-        var colPlace = h.indexOf("地点");
-        var colAct = h.indexOf("活动");
-        var colNote = h.indexOf("备注");
-        state.itinerary.forEach(function (item, i) {
-          while (i >= state.sheet.rows.length) {
-            state.sheet.rows.push(
-              h.map(function () {
-                return "";
-              })
-            );
+        return {
+          date: h.indexOf("日期"),
+          time: h.indexOf("时间"),
+          place: h.indexOf("地点"),
+          act: h.indexOf("活动"),
+          note: h.indexOf("备注")
+        };
+      }
+
+      function isSheetRouteColumn(colIndex) {
+        var cols = getSheetColumnMap();
+        return (
+          colIndex === cols.date ||
+          colIndex === cols.time ||
+          colIndex === cols.place ||
+          colIndex === cols.act ||
+          colIndex === cols.note
+        );
+      }
+
+      function applyItineraryItemToSheetRow(item, rowIndex) {
+        var cols = getSheetColumnMap();
+        var h = state.sheet.headers;
+        while (rowIndex >= state.sheet.rows.length) {
+          state.sheet.rows.push(
+            h.map(function () {
+              return "";
+            })
+          );
+        }
+        var row = state.sheet.rows[rowIndex];
+        var timeStr = item.time || "";
+        if (cols.time >= 0) row[cols.time] = timeStr;
+        if (cols.place >= 0) row[cols.place] = item.place || "";
+        if (cols.note >= 0) row[cols.note] = item.note || "";
+        if (cols.act >= 0) row[cols.act] = item.note || "";
+        if (cols.date >= 0 && timeStr && timeStr.indexOf("/") !== -1) {
+          row[cols.date] = timeStr.split(/\s+/)[0];
+        } else if (cols.date >= 0 && !timeStr) {
+          row[cols.date] = "";
+        }
+      }
+
+      function scheduleItineraryToSheetSync() {
+        if (itinerarySheetSyncTimer) clearTimeout(itinerarySheetSyncTimer);
+        itinerarySheetSyncTimer = setTimeout(function () {
+          itinerarySheetSyncTimer = null;
+          syncItineraryToSheet({ silent: true });
+        }, 350);
+      }
+
+      function syncItineraryToSheet(opts) {
+        opts = opts || {};
+        if (itinerarySheetSyncing || sheetEditing) return;
+        itinerarySheetSyncing = true;
+        try {
+          state.itinerary.forEach(function (item, i) {
+            applyItineraryItemToSheetRow(item, i);
+          });
+          if (!opts.skipRender && activeView === "sheet") renderSheet();
+          if (!opts.skipSave && !cloudApplying) scheduleSheetSave();
+        } finally {
+          itinerarySheetSyncing = false;
+        }
+      }
+
+      function syncSheetRowToItinerary(rowIndex, opts) {
+        opts = opts || {};
+        if (itinerarySheetSyncing) return;
+        var cols = getSheetColumnMap();
+        if (cols.time < 0 && cols.place < 0 && cols.note < 0) return;
+
+        ensureSheetDimensions();
+        var row = state.sheet.rows[rowIndex];
+        if (!row) return;
+
+        var timeVal = cols.time >= 0 ? getCellPlainText(row[cols.time]).trim() : "";
+        var dateVal = cols.date >= 0 ? getCellPlainText(row[cols.date]).trim() : "";
+        var time = timeVal;
+        if (dateVal) time = dateVal + (timeVal ? " " + timeVal : "");
+        var place = cols.place >= 0 ? getCellPlainText(row[cols.place]).trim() : "";
+        var note = cols.note >= 0 ? getCellPlainText(row[cols.note]).trim() : "";
+        if (!note && cols.act >= 0) note = getCellPlainText(row[cols.act]).trim();
+
+        itinerarySheetSyncing = true;
+        var item;
+        var prevPlace = "";
+        try {
+          while (state.itinerary.length <= rowIndex) {
+            state.itinerary.push({
+              id: uid(),
+              time: "",
+              place: "",
+              note: "",
+              lat: null,
+              lng: null
+            });
           }
-          var row = state.sheet.rows[i];
-          if (colTime >= 0) row[colTime] = item.time || "";
-          if (colPlace >= 0) row[colPlace] = item.place || "";
-          if (colNote >= 0) row[colNote] = item.note || "";
-          if (colAct >= 0 && !row[colAct]) row[colAct] = item.note || "";
-          if (colDate >= 0 && item.time && item.time.indexOf("/") !== -1) {
-            row[colDate] = item.time.split(/\s+/)[0];
-          }
-        });
-        renderSheet();
-        scheduleSheetSave();
-        setSheetStatus("已从路线导入 " + state.itinerary.length + " 行");
+          item = state.itinerary[rowIndex];
+          prevPlace = (item.place || "").trim();
+          item.time = time.slice(0, 40);
+          item.place = place.slice(0, 120);
+          item.note = note.slice(0, 200);
+          saveState();
+        } finally {
+          itinerarySheetSyncing = false;
+        }
+
+        syncItineraryUi();
+        if (opts.geocode && place && place !== prevPlace && item) {
+          geocodeItineraryById(item.id, false);
+        }
+      }
+
+      function importItineraryToSheet() {
+        syncItineraryToSheet({ silent: false });
+        setSheetStatus("已同步 " + state.itinerary.length + " 个路线点到表格");
       }
 
       function initAppTabs() {
@@ -3052,11 +3367,13 @@
 
       async function start() {
         initAppTabs();
+        bindRouteFormEditing();
         syncHeaderOffset();
         window.addEventListener("resize", syncHeaderOffset);
         await initCloudIfConfigured();
         renderSheet();
         syncItineraryUi();
+        syncItineraryToSheet({ silent: true, skipSave: true });
         renderInfoClippings();
 
         if (!window.L) {
