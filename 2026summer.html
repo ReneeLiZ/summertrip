@@ -17,6 +17,7 @@
       --glass-bg: rgba(255, 255, 255, 0.78);
       --glass-edge: rgba(255, 255, 255, 0.55);
       --glass-shadow: 0 16px 48px rgba(0, 0, 0, 0.12);
+      --app-chrome-h: 148px;
     }
 
     * { box-sizing: border-box; }
@@ -98,10 +99,11 @@
       top: 0;
       left: 0;
       right: 0;
-      z-index: 40;
+      z-index: 50;
       margin: 10px 12px 0;
       padding: 0.85rem 1.15rem;
       border-radius: 16px;
+      pointer-events: auto;
     }
 
     h1 {
@@ -136,7 +138,7 @@
 
     .map-panels {
       position: fixed;
-      top: 86px;
+      top: var(--app-chrome-h, 148px);
       left: 12px;
       width: min(336px, calc(100vw - 24px));
       max-height: calc(100vh - 100px);
@@ -151,7 +153,7 @@
 
     .handbook-stack {
       position: fixed;
-      top: 86px;
+      top: var(--app-chrome-h, 148px);
       right: 12px;
       width: min(404px, calc(100vw - 24px));
       max-height: calc(100vh - 100px);
@@ -166,7 +168,6 @@
 
     @media (max-width: 820px) {
       .map-panels {
-        top: 80px;
         max-height: min(38vh, 320px);
         width: min(300px, calc(100vw - 20px));
       }
@@ -594,18 +595,191 @@
     }
 
     .clip-edit-actions .btn { margin-top: 0; }
+
+    .app-tabs {
+      display: flex;
+      gap: 0.35rem;
+      margin-bottom: 0.55rem;
+    }
+
+    .app-tab {
+      flex: 1;
+      padding: 0.4rem 0.55rem;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.45);
+      font-family: inherit;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+    }
+
+    .app-tab[aria-selected="true"] {
+      background: rgba(0, 0, 0, 0.85);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    body.view-sheet-active .map-bg,
+    body.view-sheet-active .map-panels,
+    body.view-sheet-active .handbook-stack,
+    body.view-sheet-active .site-footer {
+      display: none !important;
+    }
+
+    .sheet-view {
+      display: none;
+      position: fixed;
+      top: var(--app-chrome-h, 148px);
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 25;
+      pointer-events: none;
+      flex-direction: column;
+      background: #eef1f4;
+      padding: 10px 12px 12px;
+    }
+
+    body.view-sheet-active .sheet-view {
+      display: flex;
+    }
+
+    .sheet-toolbar,
+    .sheet-wrap {
+      pointer-events: auto;
+    }
+
+    body.view-sheet-active .site-header {
+      width: min(720px, calc(100vw - 24px)) !important;
+    }
+
+    body.view-map-active .sheet-view {
+      display: none !important;
+    }
+
+    .sheet-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.45rem;
+      margin-bottom: 0.55rem;
+    }
+
+    .sheet-toolbar .btn { margin-top: 0; }
+
+    .sheet-status {
+      flex: 1;
+      min-width: 120px;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      opacity: 0.72;
+      text-align: right;
+    }
+
+    .sheet-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      border-radius: 10px;
+      background: #fff;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .sheet-table {
+      border-collapse: collapse;
+      min-width: 100%;
+      font-size: 0.82rem;
+    }
+
+    .sheet-table th,
+    .sheet-table td {
+      border: 1px solid #d8dde3;
+      padding: 0;
+      min-width: 88px;
+      max-width: 280px;
+      vertical-align: top;
+    }
+
+    .sheet-table th.sheet-row-idx,
+    .sheet-table td.sheet-row-idx {
+      min-width: 36px;
+      max-width: 36px;
+      text-align: center;
+      background: #f4f6f8;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: rgba(0, 0, 0, 0.45);
+      position: sticky;
+      left: 0;
+      z-index: 2;
+    }
+
+    .sheet-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: #f8f9fb;
+    }
+
+    .sheet-table thead th.sheet-row-idx {
+      z-index: 4;
+    }
+
+    .sheet-table input {
+      display: block;
+      width: 100%;
+      min-width: 80px;
+      border: none;
+      background: transparent;
+      font-family: inherit;
+      font-size: inherit;
+      padding: 0.4rem 0.45rem;
+      letter-spacing: 0.02em;
+    }
+
+    .sheet-table input:focus {
+      outline: 2px solid rgba(0, 0, 0, 0.35);
+      outline-offset: -2px;
+      background: #fffef8;
+    }
+
+    .sheet-table tr:hover td:not(.sheet-row-idx) {
+      background: rgba(0, 0, 0, 0.02);
+    }
+
+    .sheet-del-row {
+      min-width: 28px;
+      max-width: 28px;
+      padding: 0;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 0.75rem;
+      opacity: 0.45;
+    }
+
+    .sheet-del-row:hover { opacity: 1; }
   </style>
 </head>
-<body>
+<body class="view-map-active">
   <div class="map-bg">
     <div id="map" role="application" aria-label="日本地图"></div>
     <div id="map-fallback" class="map-fallback-msg" aria-live="polite"></div>
   </div>
 
   <div class="ui-layer">
-    <header class="glass-card site-header" style="width: 500px">
-      <h1 >2026夏季旅行✈️ 🇯🇵</h1>
-      <p class="tagline">地图全屏背景 · 侧栏资料与路线</p>
+    <header class="glass-card site-header" style="width: min(520px, calc(100vw - 24px))">
+      <nav class="app-tabs" role="tablist" aria-label="页面切换">
+        <button type="button" class="app-tab" role="tab" id="tab-map" data-view="map" aria-selected="true">🗺️ 地图</button>
+        <button type="button" class="app-tab" role="tab" id="tab-sheet" data-view="sheet" aria-selected="false">📊 共享表格</button>
+      </nav>
+      <h1>2026夏季旅行✈️ 🇯🇵</h1>
+      <p class="tagline" id="view-tagline">地图全屏背景 · 侧栏资料与路线</p>
       <p class="cloud-status" id="cloud-status">仅本机缓存（未配置云端）</p>
     </header>
 
@@ -636,6 +810,7 @@
         <p class="route-status" id="route-status" aria-live="polite"></p>
         <ul class="pin-list" id="pin-list"></ul>
         <button type="button" class="btn btn-block" id="route-fit-btn" style="margin-top: 0.6rem">缩放到路线范围</button>
+        <button type="button" class="btn btn-block" id="goto-sheet-btn" style="margin-top: 0.45rem">在共享表格中编辑 →</button>
       </div>
     </aside>
 
@@ -657,6 +832,23 @@
     </aside>
 
     <footer class="site-footer" id="site-footer">本机 localStorage 备份 · 配置 Supabase 后多人共享</footer>
+  </div>
+
+  <div class="sheet-view" id="sheet-view" aria-label="共享行程表格">
+    <div class="sheet-toolbar">
+      <button type="button" class="btn" id="sheet-add-row">+ 行</button>
+      <button type="button" class="btn" id="sheet-add-col">+ 列</button>
+      <button type="button" class="btn" id="sheet-import-route">从路线导入</button>
+      <button type="button" class="btn" id="sheet-goto-map">查看地图路线 →</button>
+      <button type="button" class="btn" id="sheet-export-tsv">复制为 TSV</button>
+      <span class="sheet-status" id="sheet-status" aria-live="polite">本机编辑中</span>
+    </div>
+    <div class="sheet-wrap" id="sheet-wrap">
+      <table class="sheet-table" id="sheet-table" aria-label="可编辑行程表">
+        <thead id="sheet-thead"></thead>
+        <tbody id="sheet-tbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -841,9 +1033,15 @@
         nara: { zh: "奈良县", ja: "奈良県" }
       };
 
+      var SHEET_ID = "main";
+      var DEFAULT_SHEET_HEADERS = ["日期", "时间", "地点", "活动", "备注", "预算", "交通", "住宿"];
+
       var state = loadState();
       var activeItineraryId = null;
       var routeMarkersById = {};
+      var activeView = "map";
+      var sheetEditing = false;
+      var sheetSaveTimer = null;
       var map;
       var geoLayer;
       var routeLayerGroup = null;
@@ -939,8 +1137,56 @@
         });
       }
 
+      function defaultSheet() {
+        var headers = DEFAULT_SHEET_HEADERS.slice();
+        var rows = [];
+        var i;
+        for (i = 0; i < 20; i++) {
+          rows.push(headers.map(function () {
+            return "";
+          }));
+        }
+        return { headers: headers, rows: rows };
+      }
+
+      function normalizeSheet(s) {
+        if (!s || typeof s !== "object") return defaultSheet();
+        var headers = Array.isArray(s.headers)
+          ? s.headers.map(function (h) {
+              return String(h || "").slice(0, 40);
+            })
+          : DEFAULT_SHEET_HEADERS.slice();
+        if (headers.length < 2) headers = DEFAULT_SHEET_HEADERS.slice();
+        var colCount = headers.length;
+        var rows = Array.isArray(s.rows)
+          ? s.rows.map(function (row) {
+              var r = Array.isArray(row)
+                ? row.map(function (cell) {
+                    return String(cell == null ? "" : cell).slice(0, 500);
+                  })
+                : [];
+              while (r.length < colCount) r.push("");
+              return r.slice(0, colCount);
+            })
+          : [];
+        while (rows.length < 12) {
+          rows.push(
+            headers.map(function () {
+              return "";
+            })
+          );
+        }
+        return { headers: headers, rows: rows };
+      }
+
       function migrateStateObject(o) {
-        if (!o || typeof o !== "object") return { itinerary: defaultItineraryFromTemplate(), infoClippings: [] };
+        if (!o || typeof o !== "object") {
+          return {
+            itinerary: defaultItineraryFromTemplate(),
+            infoClippings: [],
+            sheet: defaultSheet()
+          };
+        }
         var itinerary = normalizeItinerary(o.itinerary);
         if (!itinerary.length && Array.isArray(o.mapPins) && o.mapPins.length) {
           itinerary = o.mapPins.map(function (p) {
@@ -958,7 +1204,8 @@
         if (!itinerary.length) itinerary = defaultItineraryFromTemplate();
         return {
           itinerary: itinerary,
-          infoClippings: normalizeInfoClippings(o.infoClippings)
+          infoClippings: normalizeInfoClippings(o.infoClippings),
+          sheet: normalizeSheet(o.sheet)
         };
       }
 
@@ -979,7 +1226,8 @@
         } catch (e2) {}
         return {
           itinerary: defaultItineraryFromTemplate(),
-          infoClippings: []
+          infoClippings: [],
+          sheet: defaultSheet()
         };
       }
 
@@ -1141,7 +1389,9 @@
         var m = await sbGetJSON("map_pins?select=id&limit=1");
         if (m.length) return true;
         var c = await sbGetJSON("info_clippings?select=id&limit=1");
-        return c.length > 0;
+        if (c.length) return true;
+        var s = await sbGetJSON("shared_sheet?select=id&limit=1");
+        return s.length > 0;
       }
 
       async function cloudPullApply() {
@@ -1174,6 +1424,19 @@
               note: c.note || ""
             };
           });
+          if (!sheetEditing) {
+            try {
+              var sheets = await sbGetJSON("shared_sheet?select=*&id=eq." + encodeURIComponent(SHEET_ID));
+              if (sheets.length) {
+                state.sheet = normalizeSheet({
+                  headers: sheets[0].headers,
+                  rows: sheets[0].rows
+                });
+              }
+            } catch (eSheet) {
+              console.warn("表格云端拉取失败", eSheet);
+            }
+          }
         } finally {
           cloudApplying = false;
         }
@@ -1205,6 +1468,43 @@
           });
           await sbPostJSON("info_clippings", crows, true);
         }
+        await cloudPushSheet(true);
+      }
+
+      function cloudPushSheet(force) {
+        if (!cloudEnabled || cloudApplying) return Promise.resolve();
+        if (!force && sheetEditing) return Promise.resolve();
+        return sbPostJSON(
+          "shared_sheet",
+          [
+            {
+              id: SHEET_ID,
+              headers: state.sheet.headers,
+              rows: state.sheet.rows
+            }
+          ],
+          true
+        );
+      }
+
+      function scheduleSheetSave() {
+        if (sheetSaveTimer) clearTimeout(sheetSaveTimer);
+        setSheetStatus("保存中…");
+        sheetSaveTimer = setTimeout(function () {
+          sheetSaveTimer = null;
+          saveState();
+          if (cloudEnabled && !cloudApplying) {
+            cloudPushSheet(false)
+              .then(function () {
+                setSheetStatus("已同步");
+              })
+              .catch(function () {
+                setSheetStatus("同步失败");
+              });
+          } else {
+            setSheetStatus("已保存到本机");
+          }
+        }, 500);
       }
 
       async function cloudSyncAllPinSortOrder() {
@@ -1250,6 +1550,7 @@
           await cloudPullApply();
           syncItineraryUi();
           renderInfoClippings();
+          if (!sheetEditing) renderSheet();
           saveState();
         } catch (e) {
           console.warn("云端拉取失败", e);
@@ -1281,7 +1582,7 @@
           }
           saveState();
           setCloudStatus("云端已连接 · 约每 12 秒同步他人更新", true);
-          setFooterCloudNote("行程 / 路线 / 收集夹已与 Supabase 同步（匿名可写，注意滥用风险）");
+          setFooterCloudNote("行程 / 路线 / 收集夹 / 共享表格已与 Supabase 同步（匿名可写，注意滥用风险）");
           setInterval(cloudPollTick, 12000);
         } catch (e) {
           cloudEnabled = false;
@@ -2190,8 +2491,324 @@
         finishMapUiSetup();
       }
 
+      function setSheetStatus(msg) {
+        var el = document.getElementById("sheet-status");
+        if (el) el.textContent = msg || "";
+      }
+
+      function syncHeaderOffset() {
+        var header = document.querySelector(".site-header");
+        if (!header) return;
+        var bottom = header.getBoundingClientRect().bottom;
+        document.documentElement.style.setProperty("--app-chrome-h", Math.ceil(bottom + 10) + "px");
+      }
+
+      function setActiveView(view) {
+        activeView = view === "sheet" ? "sheet" : "map";
+        document.body.classList.remove("view-map-active", "view-sheet-active");
+        document.body.classList.add(activeView === "sheet" ? "view-sheet-active" : "view-map-active");
+        syncHeaderOffset();
+        document.getElementById("tab-map").setAttribute("aria-selected", activeView === "map" ? "true" : "false");
+        document.getElementById("tab-sheet").setAttribute("aria-selected", activeView === "sheet" ? "true" : "false");
+        var tag = document.getElementById("view-tagline");
+        if (tag) {
+          tag.textContent =
+            activeView === "sheet"
+              ? "共享 Excel 式表格 · 与地图路线数据互通"
+              : "地图全屏背景 · 侧栏资料与路线";
+        }
+        if (activeView === "sheet") {
+          renderSheet();
+          requestAnimationFrame(function () {
+            syncHeaderOffset();
+          });
+        }
+        if (map) {
+          setTimeout(function () {
+            map.invalidateSize();
+            syncHeaderOffset();
+          }, 120);
+        }
+      }
+
+      function ensureSheetDimensions() {
+        var colCount = state.sheet.headers.length;
+        state.sheet.rows.forEach(function (row, ri) {
+          while (row.length < colCount) row.push("");
+          if (row.length > colCount) state.sheet.rows[ri] = row.slice(0, colCount);
+        });
+      }
+
+      function setSheetCell(r, c, value) {
+        ensureSheetDimensions();
+        if (!state.sheet.rows[r]) {
+          state.sheet.rows[r] = state.sheet.headers.map(function () {
+            return "";
+          });
+        }
+        state.sheet.rows[r][c] = String(value == null ? "" : value).slice(0, 500);
+        scheduleSheetSave();
+      }
+
+      function renderSheet() {
+        var thead = document.getElementById("sheet-thead");
+        var tbody = document.getElementById("sheet-tbody");
+        if (!thead || !tbody) return;
+        ensureSheetDimensions();
+
+        var headRow = document.createElement("tr");
+        var corner = document.createElement("th");
+        corner.className = "sheet-row-idx";
+        corner.textContent = "#";
+        headRow.appendChild(corner);
+
+        state.sheet.headers.forEach(function (h, ci) {
+          var th = document.createElement("th");
+          var inp = document.createElement("input");
+          inp.type = "text";
+          inp.value = h;
+          inp.setAttribute("aria-label", "列标题 " + (ci + 1));
+          inp.dataset.col = String(ci);
+          inp.addEventListener("focus", function () {
+            sheetEditing = true;
+          });
+          inp.addEventListener("blur", function () {
+            sheetEditing = false;
+            state.sheet.headers[ci] = inp.value.slice(0, 40);
+            scheduleSheetSave();
+          });
+          inp.addEventListener("input", function () {
+            state.sheet.headers[ci] = inp.value.slice(0, 40);
+            scheduleSheetSave();
+          });
+          th.appendChild(inp);
+          headRow.appendChild(th);
+        });
+        var delHead = document.createElement("th");
+        delHead.className = "sheet-row-idx";
+        delHead.setAttribute("aria-hidden", "true");
+        headRow.appendChild(delHead);
+        thead.innerHTML = "";
+        thead.appendChild(headRow);
+
+        tbody.innerHTML = "";
+        state.sheet.rows.forEach(function (row, ri) {
+          var tr = document.createElement("tr");
+          var idx = document.createElement("td");
+          idx.className = "sheet-row-idx";
+          idx.textContent = String(ri + 1);
+          tr.appendChild(idx);
+
+          state.sheet.headers.forEach(function (_h, ci) {
+            var td = document.createElement("td");
+            var inp = document.createElement("input");
+            inp.type = "text";
+            inp.value = row[ci] || "";
+            inp.dataset.row = String(ri);
+            inp.dataset.col = String(ci);
+            inp.addEventListener("focus", function () {
+              sheetEditing = true;
+            });
+            inp.addEventListener("blur", function () {
+              sheetEditing = false;
+              setSheetCell(ri, ci, inp.value);
+            });
+            inp.addEventListener("input", function () {
+              setSheetCell(ri, ci, inp.value);
+            });
+            inp.addEventListener("keydown", function (e) {
+              handleSheetCellKeydown(e, ri, ci);
+            });
+            td.appendChild(inp);
+            tr.appendChild(td);
+          });
+
+          var delTd = document.createElement("td");
+          var delBtn = document.createElement("button");
+          delBtn.type = "button";
+          delBtn.className = "sheet-del-row";
+          delBtn.setAttribute("aria-label", "删除第 " + (ri + 1) + " 行");
+          delBtn.textContent = "×";
+          delBtn.addEventListener("click", function () {
+            state.sheet.rows.splice(ri, 1);
+            if (!state.sheet.rows.length) {
+              state.sheet.rows.push(
+                state.sheet.headers.map(function () {
+                  return "";
+                })
+              );
+            }
+            renderSheet();
+            scheduleSheetSave();
+          });
+          delTd.appendChild(delBtn);
+          tr.appendChild(delTd);
+
+          tbody.appendChild(tr);
+        });
+      }
+
+      function handleSheetCellKeydown(e, r, c) {
+        var nr = r;
+        var nc = c;
+        if (e.key === "Tab") {
+          e.preventDefault();
+          nc = e.shiftKey ? c - 1 : c + 1;
+          if (nc >= state.sheet.headers.length) {
+            nc = 0;
+            nr = r + 1;
+          }
+          if (nc < 0) {
+            nc = state.sheet.headers.length - 1;
+            nr = r - 1;
+          }
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          nr = r + 1;
+        } else {
+          return;
+        }
+        if (nr < 0 || nr >= state.sheet.rows.length) return;
+        if (nc < 0 || nc >= state.sheet.headers.length) return;
+        var next = document.querySelector(
+          '#sheet-tbody input[data-row="' + nr + '"][data-col="' + nc + '"]'
+        );
+        if (next) next.focus();
+      }
+
+      function applyPasteToSheet(startR, startC, text) {
+        var lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+        if (lines.length && lines[lines.length - 1] === "") lines.pop();
+        lines.forEach(function (line, dr) {
+          var cells = line.split("\t");
+          var r = startR + dr;
+          while (r >= state.sheet.rows.length) {
+            state.sheet.rows.push(
+              state.sheet.headers.map(function () {
+                return "";
+              })
+            );
+          }
+          cells.forEach(function (val, dc) {
+            var c = startC + dc;
+            if (c >= state.sheet.headers.length) return;
+            setSheetCell(r, c, val);
+          });
+        });
+        renderSheet();
+        scheduleSheetSave();
+      }
+
+      function sheetToTsv() {
+        ensureSheetDimensions();
+        var lines = [state.sheet.headers.join("\t")];
+        state.sheet.rows.forEach(function (row) {
+          lines.push(row.join("\t"));
+        });
+        return lines.join("\n");
+      }
+
+      function importItineraryToSheet() {
+        var h = state.sheet.headers;
+        var colDate = h.indexOf("日期");
+        var colTime = h.indexOf("时间");
+        var colPlace = h.indexOf("地点");
+        var colAct = h.indexOf("活动");
+        var colNote = h.indexOf("备注");
+        state.itinerary.forEach(function (item, i) {
+          while (i >= state.sheet.rows.length) {
+            state.sheet.rows.push(
+              h.map(function () {
+                return "";
+              })
+            );
+          }
+          var row = state.sheet.rows[i];
+          if (colTime >= 0) row[colTime] = item.time || "";
+          if (colPlace >= 0) row[colPlace] = item.place || "";
+          if (colNote >= 0) row[colNote] = item.note || "";
+          if (colAct >= 0 && !row[colAct]) row[colAct] = item.note || "";
+          if (colDate >= 0 && item.time && item.time.indexOf("/") !== -1) {
+            row[colDate] = item.time.split(/\s+/)[0];
+          }
+        });
+        renderSheet();
+        scheduleSheetSave();
+        setSheetStatus("已从路线导入 " + state.itinerary.length + " 行");
+      }
+
+      function initAppTabs() {
+        document.querySelectorAll(".app-tab").forEach(function (tab) {
+          tab.addEventListener("click", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            setActiveView(tab.getAttribute("data-view"));
+          });
+        });
+
+        document.getElementById("goto-sheet-btn").addEventListener("click", function () {
+          setActiveView("sheet");
+        });
+
+        document.getElementById("sheet-goto-map").addEventListener("click", function () {
+          setActiveView("map");
+        });
+
+        document.getElementById("sheet-add-row").addEventListener("click", function () {
+          state.sheet.rows.push(
+            state.sheet.headers.map(function () {
+              return "";
+            })
+          );
+          renderSheet();
+          scheduleSheetSave();
+        });
+
+        document.getElementById("sheet-add-col").addEventListener("click", function () {
+          var name = "列" + (state.sheet.headers.length + 1);
+          state.sheet.headers.push(name);
+          state.sheet.rows.forEach(function (row) {
+            row.push("");
+          });
+          renderSheet();
+          scheduleSheetSave();
+        });
+
+        document.getElementById("sheet-import-route").addEventListener("click", importItineraryToSheet);
+
+        document.getElementById("sheet-export-tsv").addEventListener("click", function () {
+          var tsv = sheetToTsv();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(tsv).then(
+              function () {
+                setSheetStatus("已复制到剪贴板，可粘贴到 Excel");
+              },
+              function () {
+                setSheetStatus("复制失败，请手动选择表格内容");
+              }
+            );
+          } else {
+            setSheetStatus("请手动全选表格后复制");
+          }
+        });
+
+        var wrap = document.getElementById("sheet-wrap");
+        wrap.addEventListener("paste", function (e) {
+          var text = (e.clipboardData || window.clipboardData).getData("text");
+          if (!text || text.indexOf("\t") === -1 && text.indexOf("\n") === -1) return;
+          var active = document.activeElement;
+          if (!active || !active.dataset || active.dataset.row == null) return;
+          e.preventDefault();
+          applyPasteToSheet(parseInt(active.dataset.row, 10), parseInt(active.dataset.col, 10), text);
+        });
+      }
+
       async function start() {
+        initAppTabs();
+        syncHeaderOffset();
+        window.addEventListener("resize", syncHeaderOffset);
         await initCloudIfConfigured();
+        renderSheet();
         syncItineraryUi();
         renderInfoClippings();
 
