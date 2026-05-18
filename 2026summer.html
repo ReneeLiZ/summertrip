@@ -730,7 +730,9 @@
       z-index: 4;
     }
 
-    .sheet-table input {
+    .sheet-table input,
+    .sheet-cell-editor,
+    .sheet-cell-caption {
       display: block;
       width: 100%;
       min-width: 80px;
@@ -742,7 +744,53 @@
       letter-spacing: 0.02em;
     }
 
-    .sheet-table input:focus {
+    .sheet-cell-editor {
+      min-height: 2.6em;
+      resize: vertical;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      line-height: 1.45;
+      field-sizing: content;
+    }
+
+    .sheet-cell-caption {
+      min-height: 1.6em;
+      resize: vertical;
+      font-size: 0.72rem;
+      opacity: 0.85;
+      white-space: pre-wrap;
+      border-top: 1px dashed #ddd;
+    }
+
+    .sheet-cell-image {
+      padding: 0.35rem;
+    }
+
+    .sheet-cell-image img {
+      display: block;
+      max-width: 100%;
+      max-height: 180px;
+      width: auto;
+      height: auto;
+      border-radius: 4px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .sheet-cell-image .sheet-img-clear {
+      margin-top: 0.25rem;
+      padding: 0.15rem 0.35rem;
+      font-size: 0.62rem;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.8);
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .sheet-table input:focus,
+    .sheet-cell-editor:focus,
+    .sheet-cell-caption:focus {
       outline: 2px solid rgba(0, 0, 0, 0.35);
       outline-offset: -2px;
       background: #fffef8;
@@ -1162,7 +1210,7 @@
           ? s.rows.map(function (row) {
               var r = Array.isArray(row)
                 ? row.map(function (cell) {
-                    return String(cell == null ? "" : cell).slice(0, 500);
+                    return normalizeCellStorage(cell);
                   })
                 : [];
               while (r.length < colCount) r.push("");
@@ -2539,6 +2587,34 @@
         });
       }
 
+      var SHEET_TEXT_MAX = 4000;
+      var SHEET_IMG_MAX = 600000;
+
+      function isSheetImageCell(v) {
+        return !!(v && typeof v === "object" && typeof v.img === "string" && v.img.indexOf("data:image") === 0);
+      }
+
+      function normalizeCellStorage(raw) {
+        if (isSheetImageCell(raw)) {
+          return {
+            img: String(raw.img).slice(0, SHEET_IMG_MAX),
+            cap: String(raw.cap || "").slice(0, SHEET_TEXT_MAX)
+          };
+        }
+        if (raw && typeof raw === "object" && raw.img) {
+          return { img: String(raw.img).slice(0, SHEET_IMG_MAX), cap: "" };
+        }
+        if (typeof raw === "string" && raw.indexOf("__IMG__:") === 0) {
+          return { img: raw.slice(7).slice(0, SHEET_IMG_MAX), cap: "" };
+        }
+        return String(raw == null ? "" : raw).slice(0, SHEET_TEXT_MAX);
+      }
+
+      function getCellPlainText(v) {
+        if (isSheetImageCell(v)) return v.cap || "";
+        return String(v == null ? "" : v);
+      }
+
       function setSheetCell(r, c, value) {
         ensureSheetDimensions();
         if (!state.sheet.rows[r]) {
@@ -2546,8 +2622,172 @@
             return "";
           });
         }
-        state.sheet.rows[r][c] = String(value == null ? "" : value).slice(0, 500);
+        state.sheet.rows[r][c] = normalizeCellStorage(value);
         scheduleSheetSave();
+      }
+
+      function setSheetCellImage(r, c, dataUrl, caption) {
+        ensureSheetDimensions();
+        if (!state.sheet.rows[r]) {
+          state.sheet.rows[r] = state.sheet.headers.map(function () {
+            return "";
+          });
+        }
+        state.sheet.rows[r][c] = {
+          img: String(dataUrl || "").slice(0, SHEET_IMG_MAX),
+          cap: String(caption || "").slice(0, SHEET_TEXT_MAX)
+        };
+        scheduleSheetSave();
+      }
+
+      function compressImageBlob(file, done) {
+        var reader = new FileReader();
+        reader.onload = function () {
+          var url = reader.result;
+          var img = new Image();
+          img.onload = function () {
+            var maxW = 960;
+            var scale = Math.min(1, maxW / img.width);
+            var w = Math.max(1, Math.round(img.width * scale));
+            var h = Math.max(1, Math.round(img.height * scale));
+            var canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            var ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, w, h);
+            try {
+              done(canvas.toDataURL("image/jpeg", 0.85));
+            } catch (e) {
+              done(url);
+            }
+          };
+          img.onerror = function () {
+            done(url);
+          };
+          img.src = url;
+        };
+        reader.onerror = function () {
+          done(null);
+        };
+        reader.readAsDataURL(file);
+      }
+
+      function pasteImageIntoCell(r, c, file) {
+        if (!file || !file.type || file.type.indexOf("image") === -1) return;
+        setSheetStatus("正在处理图片…");
+        compressImageBlob(file, function (dataUrl) {
+          if (!dataUrl) {
+            setSheetStatus("图片读取失败");
+            return;
+          }
+          setSheetCellImage(r, c, dataUrl, "");
+          renderSheet();
+          setSheetStatus("已粘贴图片");
+          var cell = document.querySelector(
+            '#sheet-tbody [data-row="' + r + '"][data-col="' + c + '"]'
+          );
+          if (cell) cell.focus();
+        });
+      }
+
+      function handleSheetCellPaste(e, r, c) {
+        var dt = e.clipboardData;
+        if (!dt) return false;
+        var items = dt.items;
+        if (items) {
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].type && items[i].type.indexOf("image") !== -1) {
+              e.preventDefault();
+              var file = items[i].getAsFile();
+              if (file) pasteImageIntoCell(r, c, file);
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function mountSheetCell(td, ri, ci, raw) {
+        td.innerHTML = "";
+        td.className = "";
+
+        if (isSheetImageCell(raw)) {
+          td.className = "sheet-cell-has-image";
+          var wrap = document.createElement("div");
+          wrap.className = "sheet-cell-image";
+
+          var img = document.createElement("img");
+          img.src = raw.img;
+          img.alt = raw.cap || "单元格图片";
+
+          var cap = document.createElement("textarea");
+          cap.className = "sheet-cell-caption";
+          cap.placeholder = "图片说明（可换行）…";
+          cap.value = raw.cap || "";
+          cap.dataset.row = String(ri);
+          cap.dataset.col = String(ci);
+          cap.addEventListener("focus", function () {
+            sheetEditing = true;
+          });
+          cap.addEventListener("blur", function () {
+            sheetEditing = false;
+            if (isSheetImageCell(state.sheet.rows[ri][ci])) {
+              state.sheet.rows[ri][ci].cap = cap.value.slice(0, SHEET_TEXT_MAX);
+              scheduleSheetSave();
+            }
+          });
+          cap.addEventListener("input", function () {
+            if (isSheetImageCell(state.sheet.rows[ri][ci])) {
+              state.sheet.rows[ri][ci].cap = cap.value.slice(0, SHEET_TEXT_MAX);
+              scheduleSheetSave();
+            }
+          });
+          cap.addEventListener("paste", function (e) {
+            if (handleSheetCellPaste(e, ri, ci)) return;
+          });
+          cap.addEventListener("keydown", function (e) {
+            handleSheetCellKeydown(e, ri, ci);
+          });
+
+          var clearBtn = document.createElement("button");
+          clearBtn.type = "button";
+          clearBtn.className = "sheet-img-clear";
+          clearBtn.textContent = "移除图片";
+          clearBtn.addEventListener("click", function () {
+            setSheetCell(ri, ci, cap.value || "");
+            renderSheet();
+          });
+
+          wrap.appendChild(img);
+          wrap.appendChild(cap);
+          wrap.appendChild(clearBtn);
+          td.appendChild(wrap);
+          return;
+        }
+
+        var ta = document.createElement("textarea");
+        ta.className = "sheet-cell-editor";
+        ta.value = getCellPlainText(raw);
+        ta.placeholder = "可换行 · 支持粘贴图片";
+        ta.dataset.row = String(ri);
+        ta.dataset.col = String(ci);
+        ta.addEventListener("focus", function () {
+          sheetEditing = true;
+        });
+        ta.addEventListener("blur", function () {
+          sheetEditing = false;
+          setSheetCell(ri, ci, ta.value);
+        });
+        ta.addEventListener("input", function () {
+          setSheetCell(ri, ci, ta.value);
+        });
+        ta.addEventListener("paste", function (e) {
+          if (handleSheetCellPaste(e, ri, ci)) return;
+        });
+        ta.addEventListener("keydown", function (e) {
+          handleSheetCellKeydown(e, ri, ci);
+        });
+        td.appendChild(ta);
       }
 
       function renderSheet() {
@@ -2601,25 +2841,7 @@
 
           state.sheet.headers.forEach(function (_h, ci) {
             var td = document.createElement("td");
-            var inp = document.createElement("input");
-            inp.type = "text";
-            inp.value = row[ci] || "";
-            inp.dataset.row = String(ri);
-            inp.dataset.col = String(ci);
-            inp.addEventListener("focus", function () {
-              sheetEditing = true;
-            });
-            inp.addEventListener("blur", function () {
-              sheetEditing = false;
-              setSheetCell(ri, ci, inp.value);
-            });
-            inp.addEventListener("input", function () {
-              setSheetCell(ri, ci, inp.value);
-            });
-            inp.addEventListener("keydown", function (e) {
-              handleSheetCellKeydown(e, ri, ci);
-            });
-            td.appendChild(inp);
+            mountSheetCell(td, ri, ci, row[ci]);
             tr.appendChild(td);
           });
 
@@ -2648,12 +2870,18 @@
         });
       }
 
+      function focusSheetCell(r, c) {
+        var next = document.querySelector(
+          '#sheet-tbody [data-row="' + r + '"][data-col="' + c + '"]'
+        );
+        if (next) next.focus();
+      }
+
       function handleSheetCellKeydown(e, r, c) {
-        var nr = r;
-        var nc = c;
         if (e.key === "Tab") {
           e.preventDefault();
-          nc = e.shiftKey ? c - 1 : c + 1;
+          var nc = e.shiftKey ? c - 1 : c + 1;
+          var nr = r;
           if (nc >= state.sheet.headers.length) {
             nc = 0;
             nr = r + 1;
@@ -2662,18 +2890,17 @@
             nc = state.sheet.headers.length - 1;
             nr = r - 1;
           }
-        } else if (e.key === "Enter") {
-          e.preventDefault();
-          nr = r + 1;
-        } else {
+          if (nr < 0 || nr >= state.sheet.rows.length) return;
+          if (nc < 0 || nc >= state.sheet.headers.length) return;
+          focusSheetCell(nr, nc);
           return;
         }
-        if (nr < 0 || nr >= state.sheet.rows.length) return;
-        if (nc < 0 || nc >= state.sheet.headers.length) return;
-        var next = document.querySelector(
-          '#sheet-tbody input[data-row="' + nr + '"][data-col="' + nc + '"]'
-        );
-        if (next) next.focus();
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          var nr = r + 1;
+          if (nr >= state.sheet.rows.length) return;
+          focusSheetCell(nr, c);
+        }
       }
 
       function applyPasteToSheet(startR, startC, text) {
@@ -2692,18 +2919,31 @@
           cells.forEach(function (val, dc) {
             var c = startC + dc;
             if (c >= state.sheet.headers.length) return;
-            setSheetCell(r, c, val);
+            setSheetCell(r, c, val.replace(/\r/g, ""));
           });
         });
         renderSheet();
         scheduleSheetSave();
       }
 
+      function cellToExport(v) {
+        if (isSheetImageCell(v)) {
+          return "[图片]" + (v.cap ? " " + v.cap.replace(/\s+/g, " ") : "");
+        }
+        return String(v == null ? "" : v).replace(/\t/g, " ").replace(/\n/g, " ↵ ");
+      }
+
       function sheetToTsv() {
         ensureSheetDimensions();
         var lines = [state.sheet.headers.join("\t")];
         state.sheet.rows.forEach(function (row) {
-          lines.push(row.join("\t"));
+          lines.push(
+            row
+              .map(function (cell) {
+                return cellToExport(cell);
+              })
+              .join("\t")
+          );
         });
         return lines.join("\n");
       }
@@ -2794,12 +3034,19 @@
 
         var wrap = document.getElementById("sheet-wrap");
         wrap.addEventListener("paste", function (e) {
-          var text = (e.clipboardData || window.clipboardData).getData("text");
-          if (!text || text.indexOf("\t") === -1 && text.indexOf("\n") === -1) return;
           var active = document.activeElement;
-          if (!active || !active.dataset || active.dataset.row == null) return;
+          if (!active || active.dataset.row == null) return;
+          var r = parseInt(active.dataset.row, 10);
+          var c = parseInt(active.dataset.col, 10);
+          if (handleSheetCellPaste(e, r, c)) return;
+
+          var dt = e.clipboardData || window.clipboardData;
+          if (!dt) return;
+          var text = dt.getData("text");
+          if (!text) return;
+          if (text.indexOf("\t") === -1 && text.indexOf("\n") === -1) return;
           e.preventDefault();
-          applyPasteToSheet(parseInt(active.dataset.row, 10), parseInt(active.dataset.col, 10), text);
+          applyPasteToSheet(r, c, text);
         });
       }
 
