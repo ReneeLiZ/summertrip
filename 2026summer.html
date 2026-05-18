@@ -857,13 +857,13 @@
 
       <div class="glass-card panel route-panel">
         <h2>路线标记</h2>
-        <p class="hint">填写时间与地点后点「添加新点」。与共享表格的日期/时间/地点/备注列自动同步。</p>
+        <p class="hint">填写时间与地点后点「添加新点」。与共享表格的日期/时间/地点/内容列自动同步。</p>
         <div class="route-form">
           <label for="route-time">时间</label>
           <input type="text" id="route-time" maxlength="40" placeholder="例：7/10 或 7月10日 14:00" autocomplete="off" />
           <label for="route-place">地点</label>
           <input type="text" id="route-place" maxlength="120" placeholder="例：京都站 / 大阪城公园 / 渋谷" autocomplete="off" />
-          <label for="route-note">内容 / 备注</label>
+          <label for="route-note">内容</label>
           <input type="text" id="route-note" maxlength="200" placeholder="例：午餐、住宿、看展…" autocomplete="off" />
           <button type="button" class="btn btn-block" id="route-add-btn">添加新点到地图</button>
           <button type="button" class="btn btn-block btn-outline" id="route-save-btn" style="display: none; margin-top: 0.35rem">保存选中项</button>
@@ -903,7 +903,7 @@
       <button type="button" class="btn" id="sheet-import-route">重新同步路线</button>
       <button type="button" class="btn" id="sheet-goto-map">查看地图路线 →</button>
       <button type="button" class="btn" id="sheet-export-tsv">复制为 TSV</button>
-      <span class="sheet-status" id="sheet-status" aria-live="polite">与地图路线自动同步 · 改日期/时间/地点/备注会更新地图</span>
+      <span class="sheet-status" id="sheet-status" aria-live="polite">与地图路线自动同步 · 改日期/时间/地点/内容会更新地图</span>
     </div>
     <div class="sheet-wrap" id="sheet-wrap">
       <table class="sheet-table" id="sheet-table" aria-label="可编辑行程表">
@@ -1097,7 +1097,7 @@
       };
 
       var SHEET_ID = "main";
-      var DEFAULT_SHEET_HEADERS = ["日期", "时间", "地点", "活动", "备注", "预算", "交通", "住宿"];
+      var DEFAULT_SHEET_HEADERS = ["日期", "时间", "地点", "内容", "预算", "交通", "住宿"];
 
       var state = loadState();
       var activeItineraryId = null;
@@ -1215,6 +1215,27 @@
         return { headers: headers, rows: rows };
       }
 
+      function migrateSheetLayout(headers, rows) {
+        var noteIdx = headers.indexOf("备注");
+        var contentIdx = headers.indexOf("内容");
+        var actIdx = headers.indexOf("活动");
+        if (noteIdx >= 0) {
+          if (contentIdx < 0 && actIdx < 0) {
+            headers[noteIdx] = "内容";
+          } else {
+            headers.splice(noteIdx, 1);
+            rows.forEach(function (row) {
+              if (row.length > noteIdx) row.splice(noteIdx, 1);
+            });
+          }
+        }
+        actIdx = headers.indexOf("活动");
+        if (actIdx >= 0 && headers.indexOf("内容") < 0) {
+          headers[actIdx] = "内容";
+        }
+        return { headers: headers, rows: rows };
+      }
+
       function normalizeSheet(s) {
         if (!s || typeof s !== "object") return defaultSheet();
         var headers = Array.isArray(s.headers)
@@ -1223,7 +1244,6 @@
             })
           : DEFAULT_SHEET_HEADERS.slice();
         if (headers.length < 2) headers = DEFAULT_SHEET_HEADERS.slice();
-        var colCount = headers.length;
         var rows = Array.isArray(s.rows)
           ? s.rows.map(function (row) {
               var r = Array.isArray(row)
@@ -1231,10 +1251,17 @@
                     return normalizeCellStorage(cell);
                   })
                 : [];
-              while (r.length < colCount) r.push("");
-              return r.slice(0, colCount);
+              return r;
             })
           : [];
+        var migrated = migrateSheetLayout(headers, rows);
+        headers = migrated.headers;
+        rows = migrated.rows;
+        var colCount = headers.length;
+        rows = rows.map(function (r) {
+          while (r.length < colCount) r.push("");
+          return r.slice(0, colCount);
+        });
         while (rows.length < 12) {
           rows.push(
             headers.map(function () {
@@ -2981,7 +3008,7 @@
         var ta = document.createElement("textarea");
         ta.className = "sheet-cell-editor";
         ta.value = getCellPlainText(raw);
-        
+        ta.placeholder = "可换行 · 支持粘贴图片";
         ta.dataset.row = String(ri);
         ta.dataset.col = String(ci);
         ta.addEventListener("focus", function () {
@@ -3173,12 +3200,13 @@
 
       function getSheetColumnMap() {
         var h = state.sheet.headers;
+        var content = h.indexOf("内容");
+        if (content < 0) content = h.indexOf("活动");
         return {
           date: h.indexOf("日期"),
           time: h.indexOf("时间"),
           place: h.indexOf("地点"),
-          act: h.indexOf("活动"),
-          note: h.indexOf("备注")
+          content: content
         };
       }
 
@@ -3188,8 +3216,7 @@
           colIndex === cols.date ||
           colIndex === cols.time ||
           colIndex === cols.place ||
-          colIndex === cols.act ||
-          colIndex === cols.note
+          colIndex === cols.content
         );
       }
 
@@ -3207,8 +3234,7 @@
         var timeStr = item.time || "";
         if (cols.time >= 0) row[cols.time] = timeStr;
         if (cols.place >= 0) row[cols.place] = item.place || "";
-        if (cols.note >= 0) row[cols.note] = item.note || "";
-        if (cols.act >= 0) row[cols.act] = item.note || "";
+        if (cols.content >= 0) row[cols.content] = item.note || "";
         if (cols.date >= 0 && timeStr && timeStr.indexOf("/") !== -1) {
           row[cols.date] = timeStr.split(/\s+/)[0];
         } else if (cols.date >= 0 && !timeStr) {
@@ -3243,7 +3269,7 @@
         opts = opts || {};
         if (itinerarySheetSyncing) return;
         var cols = getSheetColumnMap();
-        if (cols.time < 0 && cols.place < 0 && cols.note < 0) return;
+        if (cols.time < 0 && cols.place < 0 && cols.content < 0) return;
 
         ensureSheetDimensions();
         var row = state.sheet.rows[rowIndex];
@@ -3254,8 +3280,7 @@
         var time = timeVal;
         if (dateVal) time = dateVal + (timeVal ? " " + timeVal : "");
         var place = cols.place >= 0 ? getCellPlainText(row[cols.place]).trim() : "";
-        var note = cols.note >= 0 ? getCellPlainText(row[cols.note]).trim() : "";
-        if (!note && cols.act >= 0) note = getCellPlainText(row[cols.act]).trim();
+        var note = cols.content >= 0 ? getCellPlainText(row[cols.content]).trim() : "";
 
         itinerarySheetSyncing = true;
         var item;
